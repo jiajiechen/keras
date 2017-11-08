@@ -1027,8 +1027,8 @@ def random_uniform_variable(shape, low, high, dtype=None,
     dtype = _convert_string_dtype(dtype)
     if name is None:
         name = _autogen_name("randomuniform")
-    if seed:
-        mx.random.seed(seed)
+    _seed_mxnet(seed)
+
     value = mx.random.uniform(low=low, high=high, dtype='float32', shape=shape)
     if dtype != np.float32:
         value = mx.nd.Cast(value, dtype=dtype)
@@ -1077,8 +1077,8 @@ def random_normal_variable(shape, mean, scale, dtype=None,
     dtype = _convert_string_dtype(dtype)
     if name is None:
         name = _autogen_name("randomnormal")
-    if seed:
-        mx.random.seed(seed)
+    _seed_mxnet(seed)
+
     value = mx.random.normal(loc=mean, scale=scale, dtype='float32', shape=shape)
     if dtype != np.float32:
         value = mx.nd.Cast(value, dtype=dtype)
@@ -2695,6 +2695,7 @@ def rnn(step_function, inputs, initial_states,
     """
     raise NotImplementedError()
 
+
 def switch(condition, then_expression, else_expression):
     """Switches between two operations depending on a scalar value.
 
@@ -2710,6 +2711,7 @@ def switch(condition, then_expression, else_expression):
         The selected tensor.
     """
     raise NotImplementedError()
+
 
 def in_train_phase(x, alt, training=None):
     """Selects `x` in train phase, and `alt` otherwise.
@@ -2731,6 +2733,7 @@ def in_train_phase(x, alt, training=None):
     """
     raise NotImplementedError()
 
+
 def in_test_phase(x, alt, training=None):
     """Selects `x` in test phase, and `alt` otherwise.
 
@@ -2750,7 +2753,9 @@ def in_test_phase(x, alt, training=None):
     """
     raise NotImplementedError()
 
+
 # NN OPERATIONS
+
 
 def relu(x, alpha=0., max_value=None):
     """Rectified linear unit.
@@ -2767,6 +2772,7 @@ def relu(x, alpha=0., max_value=None):
     """
     raise NotImplementedError()
 
+
 def elu(x, alpha=1.):
     """Exponential linear unit.
 
@@ -2779,6 +2785,7 @@ def elu(x, alpha=1.):
     """
     raise NotImplementedError()
 
+
 def softmax(x):
     """Softmax of a tensor.
 
@@ -2789,6 +2796,7 @@ def softmax(x):
         A tensor.
     """
     raise NotImplementedError()
+
 
 def softplus(x):
     """Softplus of a tensor.
@@ -2801,6 +2809,7 @@ def softplus(x):
     """
     raise NotImplementedError()
 
+
 def softsign(x):
     """Softsign of a tensor.
 
@@ -2811,6 +2820,7 @@ def softsign(x):
         A tensor.
     """
     raise NotImplementedError()
+
 
 def categorical_crossentropy(target, output, from_logits=False):
     """Categorical crossentropy between an output tensor and a target tensor.
@@ -2828,6 +2838,7 @@ def categorical_crossentropy(target, output, from_logits=False):
     """
     raise NotImplementedError()
 
+
 def sparse_categorical_crossentropy(target, output, from_logits=False):
     """Categorical crossentropy with integer targets.
 
@@ -2844,6 +2855,7 @@ def sparse_categorical_crossentropy(target, output, from_logits=False):
     """
     raise NotImplementedError()
 
+
 def binary_crossentropy(target, output, from_logits=False):
     """Binary crossentropy between an output tensor and a target tensor.
 
@@ -2858,6 +2870,7 @@ def binary_crossentropy(target, output, from_logits=False):
         A tensor.
     """
     raise NotImplementedError()
+
 
 def sigmoid(x):
     """Element-wise sigmoid.
@@ -2885,6 +2898,7 @@ def hard_sigmoid(x):
     """
     raise NotImplementedError()
 
+
 def tanh(x):
     """Element-wise tanh.
 
@@ -2896,6 +2910,8 @@ def tanh(x):
     """
     raise NotImplementedError()
 
+
+@keras_symbol_child
 def dropout(x, level, noise_shape=None, seed=None):
     """Sets entries in `x` to zero at random, while scaling the entire tensor.
 
@@ -2910,7 +2926,11 @@ def dropout(x, level, noise_shape=None, seed=None):
     # Returns
         A tensor.
     """
-    raise NotImplementedError()
+    _seed_mxnet(seed)
+    name = _autogen_name('dropout')
+
+    return KerasSymbol(mx.sym.Dropout(data=x.symbol, p=level, name=name))
+
 
 def l2_normalize(x, axis=None):
     """Normalizes a tensor wrt the L2 norm alongside the specified axis.
@@ -2922,7 +2942,12 @@ def l2_normalize(x, axis=None):
     # Returns
         A tensor.
     """
-    raise NotImplementedError()
+    if axis is None or axis < 0:
+        axis = ndim(x)
+
+    norm = mx.sym.sqrt(data=mx.sym.sum(data=mx.sym.square(data=x.symbol), axis=axis, keepdims=True))
+    return KerasSymbol(mx.sym.broadcast_div(x.symbol, norm))
+
 
 def in_top_k(predictions, targets, k):
     """Returns whether the `targets` are in the top `k` `predictions`.
@@ -2941,6 +2966,7 @@ def in_top_k(predictions, targets, k):
 
 # CONVOLUTIONS
 
+
 def conv1d(x, kernel, strides=1, padding='valid',
            data_format=None, dilation_rate=1):
     """1D convolution.
@@ -2957,6 +2983,7 @@ def conv1d(x, kernel, strides=1, padding='valid',
         A tensor, result of 1D convolution.
     """
     raise NotImplementedError()
+
 
 def conv2d(x, kernel, strides=(1, 1), padding='valid',
            data_format=None, dilation_rate=(1, 1)):
@@ -2980,6 +3007,7 @@ def conv2d(x, kernel, strides=(1, 1), padding='valid',
     """
     raise NotImplementedError()
 
+
 def conv2d_transpose(x, kernel, output_shape, strides=(1, 1),
                      padding='valid', data_format=None):
     """2D deconvolution (i.e. transposed convolution).
@@ -3001,6 +3029,7 @@ def conv2d_transpose(x, kernel, output_shape, strides=(1, 1),
         ValueError: if `data_format` is neither `channels_last` or `channels_first`.
     """
     raise NotImplementedError()
+
 
 def separable_conv2d(x, depthwise_kernel, pointwise_kernel, strides=(1, 1),
                      padding='valid', data_format=None, dilation_rate=(1, 1)):
@@ -3024,6 +3053,7 @@ def separable_conv2d(x, depthwise_kernel, pointwise_kernel, strides=(1, 1),
     """
     raise NotImplementedError()
 
+
 def depthwise_conv2d(x, depthwise_kernel, strides=(1, 1), padding='valid',
                      data_format=None, dilation_rate=(1, 1)):
     """2D convolution with separable filters.
@@ -3044,6 +3074,7 @@ def depthwise_conv2d(x, depthwise_kernel, strides=(1, 1), padding='valid',
         ValueError: if `data_format` is neither `channels_last` or `channels_first`.
     """
     raise NotImplementedError()
+
 
 def conv3d(x, kernel, strides=(1, 1, 1), padding='valid',
            data_format=None, dilation_rate=(1, 1, 1)):
@@ -3067,6 +3098,7 @@ def conv3d(x, kernel, strides=(1, 1, 1), padding='valid',
     """
     raise NotImplementedError()
 
+
 def conv3d_transpose(x, kernel, output_shape, strides=(1, 1, 1),
                      padding='valid', data_format=None):
     """3D deconvolution (i.e. transposed convolution).
@@ -3088,6 +3120,7 @@ def conv3d_transpose(x, kernel, output_shape, strides=(1, 1, 1),
         ValueError: if `data_format` is neither `channels_last` or `channels_first`.
     """
     raise NotImplementedError()
+
 
 def pool2d(x, pool_size, strides=(1, 1),
            padding='valid', data_format=None,
@@ -3111,6 +3144,7 @@ def pool2d(x, pool_size, strides=(1, 1),
     """
     raise NotImplementedError()
 
+
 def pool3d(x, pool_size, strides=(1, 1, 1), padding='valid',
            data_format=None, pool_mode='max'):
     """3D Pooling.
@@ -3131,6 +3165,7 @@ def pool3d(x, pool_size, strides=(1, 1, 1), padding='valid',
         ValueError: if `pool_mode` is neither `"max"` or `"avg"`.
     """
     raise NotImplementedError()
+
 
 def bias_add(x, bias, data_format=None):
     """Adds a bias vector to a tensor.
@@ -3154,6 +3189,8 @@ def bias_add(x, bias, data_format=None):
 
 # RANDOMNESS
 
+
+@keras_symbol_child
 def random_normal(shape, mean=0.0, stddev=1.0, dtype=None, seed=None):
     """Returns a tensor with normal distribution of values.
 
@@ -3168,8 +3205,20 @@ def random_normal(shape, mean=0.0, stddev=1.0, dtype=None, seed=None):
     # Returns
         A tensor.
     """
-    raise NotImplementedError()
+    if dtype is None:
+        dtype = floatx()
+    dtype = np.dtype(dtype)
+    name = _autogen_name('normal')
+    _seed_mxnet(seed)
 
+    sym = mx.sym.random_normal(loc=mean, scale=stddev, shape=shape, dtype='float32', name=name)
+    if dtype != np.float32:
+        sym = mx.sym.Cast(data=sym, dtype=dtype)
+    ret = KerasSymbol(sym)
+    return ret
+
+
+@keras_symbol_child
 def random_uniform(shape, minval=0.0, maxval=1.0, dtype=None, seed=None):
     """Returns a tensor with uniform distribution of values.
 
@@ -3185,8 +3234,20 @@ def random_uniform(shape, minval=0.0, maxval=1.0, dtype=None, seed=None):
     # Returns
         A tensor.
     """
-    raise NotImplementedError()
+    if dtype is None:
+        dtype = floatx()
+    dtype = np.dtype(dtype)
+    name = _autogen_name('uniform')
+    _seed_mxnet(seed)
 
+    sym = mx.sym.random_uniform(low=minval, high=maxval, shape=shape, dtype='float32', name=name)
+    if dtype != np.float32:
+        sym = mx.sym.Cast(data=sym, dtype=dtype)
+    ret = KerasSymbol(sym)
+    return ret
+
+
+@keras_symbol_child
 def random_binomial(shape, p=0.0, dtype=None, seed=None):
     """Returns a tensor with random binomial distribution of values.
 
@@ -3199,7 +3260,20 @@ def random_binomial(shape, p=0.0, dtype=None, seed=None):
     # Returns
         A tensor.
     """
-    raise NotImplementedError()
+    if dtype is None:
+        dtype = floatx()
+    name = _autogen_name('binomial')
+    _seed_mxnet(seed)
+
+    value = mx.sym.random_uniform(dtype='float32', shape=shape)
+    sym = mx.symbol.where(value <= p, mx.symbol.ones(shape=shape, dtype=dtype),
+                          mx.symbol.zeros(shape=shape, dtype=dtype), name=name)
+
+    if dtype != np.float32:
+        sym = mx.sym.Cast(data=sym, dtype=dtype)
+    ret = KerasSymbol(sym)
+    return ret
+
 
 def truncated_normal(shape, mean=0.0, stddev=1.0, dtype=None, seed=None):
     """Returns a tensor with truncated random normal distribution of values.
@@ -3219,7 +3293,7 @@ def truncated_normal(shape, mean=0.0, stddev=1.0, dtype=None, seed=None):
     # Returns
         A tensor.
     """
-    raise NotImplementedError()
+    raise NotImplementedError("MXNet Backend: Truncated Normal Tensor is not supported!")
 
 # HIGH ORDER FUNCTIONS
 
@@ -3459,6 +3533,21 @@ def _var(x, axis=None, keepdims=False):
     centered_input = mx.sym.broadcast_minus(lhs=x, rhs=mean_input)
     v = mx.sym.mean(data=(centered_input ** 2), axis=axis, keepdims=keepdims)
     return v
+
+
+def _seed_mxnet(seed):
+    """Seed MXNet for random number generation.
+    If seed is None, seeds with a random number.
+
+    # Arguments
+        seed: Seed value to seed MXNet random module.
+
+    # Returns
+        None
+    """
+    if seed is None:
+        seed = np.random.randint(10e6)
+    mx.random.seed(seed)
 
 
 @keras_symbol_child
