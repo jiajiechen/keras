@@ -14,7 +14,6 @@ _LEARNING_PHASE = 1  # The learning phase flag: 0 = test, 1 = train
 _MODEL = None
 _REENTRY = False
 
-placeholder_name_dict = defaultdict(int)
 set_image_data_format('channels_first')
 
 NAME_SCOPE_STACK = []
@@ -758,7 +757,7 @@ def dtype(x):
 def eval(x):
     """Evaluates the value of a variable.
 
-    # Arguments
+    # Arguments`
         x: A variable.
 
     # Returns
@@ -2965,6 +2964,7 @@ def dropout(x, level, noise_shape=None, seed=None):
     return KerasSymbol(mx.sym.Dropout(data=x.symbol, p=level, name=name))
 
 
+
 def l2_normalize(x, axis=None):
     """Normalizes a tensor wrt the L2 norm alongside the specified axis.
 
@@ -2980,6 +2980,7 @@ def l2_normalize(x, axis=None):
 
     norm = mx.sym.sqrt(data=mx.sym.sum(data=mx.sym.square(data=x.symbol), axis=axis, keepdims=True))
     return KerasSymbol(mx.sym.broadcast_div(x.symbol, norm))
+
 
 
 def in_top_k(predictions, targets, k):
@@ -3291,7 +3292,6 @@ def random_normal(shape, mean=0.0, stddev=1.0, dtype=None, seed=None):
     dtype = np.dtype(dtype)
     name = _autogen_name('normal')
     _seed_mxnet(seed)
-
     sym = mx.sym.random_normal(loc=mean, scale=stddev, shape=shape, dtype='float32', name=name)
     if dtype != np.float32:
         sym = mx.sym.Cast(data=sym, dtype=dtype)
@@ -3369,6 +3369,7 @@ def truncated_normal(shape, mean=0.0, stddev=1.0, dtype=None, seed=None):
         A tensor.
     """
     raise NotImplementedError("MXNet Backend: Truncated Normal Tensor is not supported!")
+
 
 
 # HIGH ORDER FUNCTIONS
