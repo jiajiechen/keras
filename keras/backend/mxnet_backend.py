@@ -744,7 +744,7 @@ def dtype(x):
 def eval(x):
     """Evaluates the value of a variable.
 
-    # Arguments`
+    # Arguments
         x: A variable.
 
     # Returns
@@ -1234,10 +1234,10 @@ def dot(x, y):
         y = mx.sym.transpose(y.symbol, axes=axis)
     else:
         y = y.symbol
-
     return KerasSymbol(mx.sym.dot(lhs=x.symbol, rhs=y))
 
 
+## TODO: batch_dot is not correct, now the argument becomes axes instead of dim
 @keras_symbol_child
 def batch_dot(x, y, axes=None):
     """Batchwise dot product.
@@ -1367,7 +1367,8 @@ def gather(reference, indices):
     # Returns
         A tensor of same type as `reference`.
     """
-    assert ndim(reference) == 2
+    # TODO: this ndim is not used in CNN
+    # assert ndim(reference) == 2
     indices = mx.sym.Cast(indices.symbol, dtype=reference.dtype)
     return KerasSymbol(mx.sym.take(reference.symbol, indices))
 
