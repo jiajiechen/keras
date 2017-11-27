@@ -2,21 +2,137 @@ from __future__ import print_function
 import mxnet as mx
 import numpy as np
 
-from .common import _FLOATX, floatx, _EPSILON, image_dim_ordering, set_image_dim_ordering
+from .common import floatx, epsilon, set_epsilon, set_floatx, set_image_data_format, image_data_format
 from numbers import Number
 from functools import wraps
 
 from collections import defaultdict
+from contextlib import contextmanager
 
 _UID_PREFIXES = defaultdict(int)
-
-_LEARNING_PHASE = 1
-_EXECUTOR = None
+_LEARNING_PHASE = 1  # The learning phase flag: 0 = test, 1 = train
 _MODEL = None
 _REENTRY = False
+NAME_SCOPE_STACK = []
 
-placeholder_name_dict = dict()
-set_image_dim_ordering('th')
+set_image_data_format('channels_first')
+
+
+@contextmanager
+def name_scope(name):
+    global NAME_SCOPE_STACK
+    NAME_SCOPE_STACK.append(name)
+    yield NAME_SCOPE_STACK.pop()
+
+
+def _prepare_name(name, default):
+    prefix = '/'.join(NAME_SCOPE_STACK)
+    if name is None:
+        name = prefix + '/' + default
+    else:
+        name = prefix + '/' + name
+    name += "%d" % get_uid(name)
+    return name
+
+
+def is_reentry():
+    return _REENTRY
+
+
+def set_reentry(value):
+    global _REENTRY
+    assert type(value) == bool, "Please set to a boolean value."
+    _REENTRY = value
+
+
+def set_model(model):
+    global _MODEL
+    _MODEL = model
+
+
+def model():
+    return _MODEL
+
+
+def clear_session():
+    global _MODEL
+    reset_uids()
+    _MODEL = None
+
+
+def learning_phase():
+    return _LEARNING_PHASE  # 0 = test, 1 = train
+
+
+def set_learning_phase(value):
+    global _LEARNING_PHASE
+    if value not in {0, 1}:
+        raise ValueError('Expected learning phase to be '
+                         '0 or 1.')
+    _LEARNING_PHASE = value
+
+
+# VARIABLE MANIPULATION
+def cast_to_floatx(x):
+    """Cast a Numpy array to the default Keras float type.
+
+    # Arguments
+        x: Numpy array.
+
+    # Returns
+        The same Numpy array, cast to its new type.
+
+    # Example
+    ```python
+        >>> from keras import backend as K
+        >>> K.floatx()
+        'float32'
+        >>> arr = numpy.array([1.0, 2.0], dtype='float64')
+        >>> arr.dtype
+        dtype('float64')
+        >>> new_arr = K.cast_to_floatx(arr)
+        >>> new_arr
+        array([ 1.,  2.], dtype=float32)
+        >>> new_arr.dtype
+        dtype('float32')
+    ```
+    """
+    x = np.asarray(x, dtype=floatx())
+    if x.shape:
+        return x
+    else:
+        return x.tolist()
+
+
+def is_sparse(tensor):
+    """
+    MXNet backend do not yet support sparse tensor operations.
+    """
+    return False
+
+
+def to_dense(tensor):
+    """Converts a sparse tensor into a dense tensor
+    and returns it.
+
+    # Arguments
+        tensor: A tensor instance (potentially sparse).
+
+    # Returns
+        A dense tensor.
+
+    # Examples
+    ```python
+        >>> from keras import backend as K
+        >>> b = K.placeholder((2, 2), sparse=True)
+        >>> print(K.is_sparse(b))
+        True
+        >>> c = K.to_dense(b)
+        >>> print(K.is_sparse(c))
+        False
+    ```
+    """
+    raise NotImplementedError("MXNet Backend: Sparse operations are not supported.")
 
 
 def keras_symbol_child(func):
@@ -78,118 +194,86 @@ def keras_symbol_child(func):
     return func_wrapper
 
 
-def set_model(model):
-    global _MODEL
-    _MODEL = model
-
-
-def clear_session():
-    reset_uids()
-    _EXECUTOR = None
-    _MODEL = None
-    _REENTRY = False
-
-
-def learning_phase():
-    # False = test, True = train
-    return _LEARNING_PHASE
-
-
-def set_learning_phase(value):
-    global _LEARNING_PHASE
-    if value not in {0, 1}:
-        raise ValueError('Expected learning phase to be '
-                         '0 or 1.')
-    _LEARNING_PHASE = value
-
-
-# VARIABLE MANIPULATION
-def cast_to_floatx(x):
-    """Cast a Numpy array to the default Keras float type.
-
-    # Arguments
-        x: Numpy array.
-
-    # Returns
-        The same Numpy array, cast to its new type.
-
-    # Example
-    ```python
-        >>> from keras import backend as K
-        >>> K.floatx()
-        'float32'
-        >>> arr = numpy.array([1.0, 2.0], dtype='float64')
-        >>> arr.dtype
-        dtype('float64')
-        >>> new_arr = K.cast_to_floatx(arr)
-        >>> new_arr
-        array([ 1.,  2.], dtype=float32)
-        >>> new_arr.dtype
-        dtype('float32')
-    ```
-    """
-    x = np.asarray(x, dtype=_FLOATX)
-    if x.shape:
-        return x
-    else:
-        return x.tolist()
-
-
-def is_sparse(tensor):
-    """
-    MXNet backend do not yet support sparse tensor operations.
-    """
-    return False
-
-
-@keras_symbol_child
-def to_dense(tensor):
-    """Converts a sparse tensor into a dense tensor
-    and returns it.
-
-    # Arguments
-        tensor: A tensor instance (potentially sparse).
-
-    # Returns
-        A dense tensor.
-
-    # Examples
-    ```python
-        >>> from keras import backend as K
-        >>> b = K.placeholder((2, 2), sparse=True)
-        >>> print(K.is_sparse(b))
-        True
-        >>> c = K.to_dense(b)
-        >>> print(K.is_sparse(c))
-        False
-    ```
-    """
-    raise NotImplementedError("MXNet Backend: Sparse operations are not supported.")
-
-
-class KerasContext(object):
-    """
-    TODO: Contexts are not yet supported with MXNet backend.
-    """
-    pass
+#
+#
+# def keras_symbol_child(func):
+#     """TODO: Add explanation for the keras symbol child."""
+#     @wraps(func)
+#     def func_wrapper(*args, **kwargs):
+#         reset = False
+#         if is_reentry():
+#             train_keras_symbol = func(*args, **kwargs)
+#             test_keras_symbol = train_keras_symbol
+#         else:
+#             set_reentry(True)
+#             reset = True
+#             initial_learning_phase = learning_phase()
+#             set_learning_phase(1)  # set 1 for training to get the training Keras symbol
+#             train_keras_symbol = func(*args, **kwargs)
+#             set_learning_phase(0)  # set 0 for testing to get the testing Keras symbol
+#             test_keras_symbol = func(*args, **kwargs)
+#             set_learning_phase(initial_learning_phase)  # set it back to inital learning_phase
+#             assert type(train_keras_symbol) == type(test_keras_symbol)
+#
+#         # Update the graph explicitly.
+#         # In which case we can unpack the ret from the operator function call?
+#         train_keras_symbols = []
+#         test_keras_symbols = []
+#         if isinstance(train_keras_symbol, tuple):
+#             train_keras_symbols = list(train_keras_symbol)
+#             test_keras_symbols = list(test_keras_symbol)
+#         if isinstance(train_keras_symbol, KerasSymbol):
+#             train_keras_symbols = [train_keras_symbol]
+#             test_keras_symbols = [test_keras_symbol]
+#         assert len(train_keras_symbols) == len(test_keras_symbols)
+#
+#         # TODO: @chenjiaj Confirm the logic here is required
+#         for train_r, test_r in zip(train_keras_symbols, test_keras_symbols):
+#             assert type(train_r) == type(test_r)
+#             if isinstance(train_r, KerasSymbol):
+#                 train_r = [train_r]
+#                 test_r = [test_r]
+#             for train_i, test_i in zip(train_r, test_r):
+#                 if isinstance(train_i, KerasSymbol):
+#                     # TODO: @chenjiaj Is this correct to add all the params from the func to the graph?
+#                     for arg in list(args) + list(kwargs.values()):
+#                         train_i.add_neighbor(arg)
+#                         if isinstance(arg, (list, tuple)):
+#                             for t in arg:
+#                                 train_i.add_neighbor(t)
+#                 else:
+#                     assert (train_i == test_i) is True
+#         if reset:
+#             set_reentry(False)
+#         return train_keras_symbol
+#     return func_wrapper
 
 
 class KerasSymbol(object):
-    def __init__(self, symbol, name=None, neighbor=None, is_var=False):
-        if neighbor is None:
-            neighbor = []
-        if not isinstance(symbol, mx.symbol.Symbol):
+    """Keras symbol is a wrapper on top of MXNet symbol that helps generate computation graph and binding values.
+    """
+    def __init__(self, mx_symbol, symbol_name=None, neighbors=None, is_var=False):
+        """
+        :param mx_symbol:
+        :param symbol_name:
+        :param neighbors:
+        :param is_var:
+        """
+        if not isinstance(mx_symbol, mx.sym.Symbol):
             raise TypeError
-        self._train_sym = symbol if learning_phase() or is_var else None
-        self._pred_sym = None if learning_phase() and not is_var else symbol
-        self._uses_learning_phase = False
-        self._name = name
-        self._neighbor = []
-        for n in neighbor:
-            self.add_neighbor(n)
-        self._bind_values = {}
-        # This will be MXNet NDArray
-        self.tensor = None
+        if is_var:
+            self._train_sym = mx_symbol
+            self._pred_sym = mx_symbol
+        else:
+            self._train_sym = mx_symbol if learning_phase() else None
+            self._pred_sym = None if learning_phase() else mx_symbol
+        self._name = symbol_name
+        self._neighbors = []
+        if neighbors:
+            for node in neighbors:
+                self.add_neighbor(node)
+        self._bind_values = {}  # Map for storing op.name : op.tensor
+        self.tensor = None  # This will be MXNet NDArray
 
     def bind(self, data):
         self.tensor = data
@@ -198,23 +282,24 @@ class KerasSymbol(object):
                 "Redefinition of variable %s" % self.name
             assert self._bind_values[self.name].dtype == data.dtype, \
                 "Redefinition of variable %s" % self.name
-            if _MODEL is not None and self.name in _MODEL._args:
-                _MODEL._set_weights({self.name: data}, {})
-            if _MODEL is not None and self.name in _MODEL._auxs:
-                _MODEL._set_weights({}, {self.name: data})
+            if model() is not None and self.name in model()._args:
+                model()._set_weights({self.name: data}, {})
+            if model() is not None and self.name in model()._auxs:
+                model()._set_weights({}, {self.name: data})
             else:
-                self._bind_values[self.name][:] = data
+                self._bind_values[self.name] = data
         else:
             self._bind_values[self.name] = data
 
     def add_neighbor(self, x):
-        if isinstance(x, KerasSymbol):
-            if x not in self._neighbor:
-                self._neighbor.append(x)
-                x.add_neighbor(self)
+        if not isinstance(x, KerasSymbol):
+            return
+        if x not in self._neighbors:
+            self._neighbors.append(x)
+            x.add_neighbor(self)
 
     def get_neighbor(self):
-        return self._neighbor
+        return self._neighbors
 
     def get_bind_values(self):
         return self._bind_values
@@ -222,7 +307,7 @@ class KerasSymbol(object):
     @property
     def symbol(self):
         sym = self._train_sym if learning_phase() else self._pred_sym
-        assert sym is not None, "%s, %s"%(self._train_sym, self._pred_sym)
+        assert sym is not None, "%s, %s" % (self._train_sym, self._pred_sym)
         return sym
 
     @property
@@ -240,31 +325,33 @@ class KerasSymbol(object):
     def shape(self):
         return self.get_shape()
 
+    def eval(self):
+        return self.tensor
+
     def get_shape(self):
         # TODO: SKM@. Was getting below error for tensor.dtype call.
         # The truth value of an NDArray is ambiguous. Please convert to number with asscalar() first.
-        '''
+        """
         if hasattr(self, 'tensor') and self.tensor:
             return self.tensor.shape
         else:
             _, out_shape, _ = self.symbol.infer_shape_partial()
             return out_shape[0]
-        '''
+        """
         _, out_shape, _ = self.symbol.infer_shape_partial()
         return out_shape[0]
 
     def get_type(self):
-        '''
         # TODO: SKM@. Was getting below error for tensor.dtype call.
         # The truth value of an NDArray is ambiguous. Please convert to number with asscalar() first.
-
+        """
         if hasattr(self, 'tensor') and self.tensor:
             return _convert_dtype_string(self.tensor.dtype)
         else:
             _, out_type, _ = self.symbol.infer_type()
             t = out_type[0]
             return _convert_dtype_string(t)
-        '''
+        """
         _, out_type, _ = self.symbol.infer_type()
         t = out_type[0]
         return _convert_dtype_string(t)
@@ -292,7 +379,7 @@ class KerasSymbol(object):
     def __add__(self, other):
         if isinstance(other, KerasSymbol):
             return KerasSymbol(
-                mx.sym.broadcast_add(
+                mx.sym.elemwise_add(
                     lhs=self.symbol,
                     rhs=other.symbol))
         else:
@@ -307,7 +394,7 @@ class KerasSymbol(object):
     def __sub__(self, other):
         if isinstance(other, KerasSymbol):
             return KerasSymbol(
-                mx.sym.broadcast_minus(
+                mx.sym.elemwise_sub(
                     lhs=self.symbol,
                     rhs=other.symbol))
         else:
@@ -328,7 +415,7 @@ class KerasSymbol(object):
                 self.symbol / other)
         else:
             return KerasSymbol(
-                mx.sym.broadcast_div(
+                mx.sym.elemwise_div(
                     lhs=self.symbol,
                     rhs=other.symbol))
 
@@ -343,7 +430,7 @@ class KerasSymbol(object):
                 self.symbol / other)
         else:
             return KerasSymbol(
-                mx.sym.broadcast_div(
+                mx.sym.elemwise_div(
                     lhs=self.symbol,
                     rhs=other.symbol))
 
@@ -351,7 +438,7 @@ class KerasSymbol(object):
     def __mul__(self, other):
         if isinstance(other, KerasSymbol):
             return KerasSymbol(
-                mx.sym.broadcast_mul(
+                mx.sym.elemwise_mul(
                     lhs=self.symbol,
                     rhs=other.symbol))
         else:
@@ -360,15 +447,6 @@ class KerasSymbol(object):
     @keras_symbol_child
     def __rmul__(self, other):
         return self.__mul__(other)
-
-    def __eq__(self, other):
-         if isinstance(other, Number):
-             return KerasSymbol(self.symbol == other)
-         else:
-             return KerasSymbolCompare(
-                 mx.sym.broadcast_equal(
-                     lhs=self.symbol,
-                     rhs=other.symbol), self, other)
 
     @keras_symbol_child
     def __gt__(self, other):
@@ -432,17 +510,7 @@ class KerasSymbol(object):
             ' dtype=' + self.dtype + ']'
 
     def __str__(self):
-        return "Symbol:" + self.symbol.name
-
-
-class KerasSymbolCompare(KerasSymbol):
-    def __init__(self, symbol, left, right):
-        super(KerasSymbolCompare, self).__init__(symbol)
-        self._left = left
-        self._right = right
-
-    def __bool__(self):
-        return self._left.name == self._right.name
+        return "Symbol: %s" % self.symbol.name
 
 
 def variable(value, dtype=None, name=None, constraint=None):
@@ -472,15 +540,14 @@ def variable(value, dtype=None, name=None, constraint=None):
                [ 3.,  4.]])
     ```
     """
-    if hasattr(value, 'tocoo'):
-        raise NotImplementedError("MXNet Backend do not support sparse tensors!")
-    if name is None:
-        name = _autogen_name('variable')
     if dtype is None:
         dtype = floatx()
     dtype = _convert_string_dtype(dtype)
     if isinstance(value, Number):
         value = np.array([value])
+        return placeholder(shape=value.shape, ndim=None, dtype=value.dtype,
+                           sparse=False, name=name)
+    name = _prepare_name(name, 'variable')
     ndarray = mx.nd.array(value, dtype=dtype)
     ret = _keras_variable(name, ndarray.shape, ndarray.dtype)
     ret.bind(ndarray)
@@ -506,18 +573,17 @@ def constant(value, dtype=None, shape=None, name=None):
     if dtype is None:
         dtype = floatx()
     dtype = _convert_string_dtype(dtype)
-
-    constant_tensor = None
+    name = _prepare_name(name, 'constant')
     if shape is None:
-        ndarray = mx.nd.array(value, dtype=dtype)
-        constant_tensor = _keras_variable(name, ndarray.shape, ndarray.dtype)
-        constant_tensor.bind(ndarray)
+        mx_ndarray = mx.nd.array(value, dtype=dtype)
+        constant_tensor = _keras_variable(name, mx_ndarray.shape, mx_ndarray.dtype)
+        constant_tensor.bind(mx_ndarray)
     else:
         np_ndarray = np.ndarray(shape, dtype=dtype)
         np_ndarray.fill(value)
-        ndarray = mx.nd.array(np_ndarray)
-        constant_tensor = _keras_variable(name, ndarray.shape, ndarray.dtype)
-        constant_tensor.bind(ndarray)
+        mx_ndarray = mx.nd.array(np_ndarray)
+        constant_tensor = _keras_variable(name, mx_ndarray.shape, mx_ndarray.dtype)
+        constant_tensor.bind(mx_ndarray)
     if isinstance(value, np.ndarray):
         constant_tensor._keras_shape = tuple([d if d != 0 else None for d in value.shape])
     elif hasattr(value, 'get_shape'):
@@ -593,23 +659,18 @@ def placeholder(shape=None, ndim=None, dtype=None, sparse=False, name=None):
         placeholder1:[tensor=False dtype=float32]
     ```
     """
+    if sparse:
+        raise NotImplementedError("MXNet backend do not yet support sparse tensor operations.")
     if dtype is None:
         dtype = floatx()
     dtype = _convert_string_dtype(dtype)
-    if name is None:
-        name = _autogen_name('placeholder')
-    elif name in placeholder_name_dict:
-        placeholder_name_dict[name] += 1
-        name = name + '_' + str(placeholder_name_dict[name] - 1)
-        placeholder_name_dict[name] = 1 if name not in placeholder_name_dict \
-                                        else placeholder_name_dict[name] + 1
-    else:
-        placeholder_name_dict[name] = 1
-    if not shape:
-        if ndim:
-            shape = tuple([0 for _ in range(ndim)])
-    else:
+    if shape is None and ndim is None:
+        raise ValueError('Specify either a shape or ndim value.')
+    name = _prepare_name(name, 'placeholder')
+    if shape:
         shape = tuple([0 if x is None else x for x in shape])
+    else:
+        shape = tuple([0 for _ in range(ndim)])
     sym = _keras_variable(name, shape=shape, dtype=dtype)
     sym._keras_shape = tuple([d if d != 0 else None for d in shape])
     sym._mxnet_placeholder = True
@@ -771,18 +832,17 @@ def eval(x):
     ```
     """
     if isinstance(x, KerasSymbol):
-        if hasattr(x, 'tensor'):
-            if x.name in x.get_bind_values() and _MODEL is not None:
-                _MODEL._sync_weights()
-            ret = x.tensor.asnumpy()
+        if hasattr(x, 'tensor') and x.tensor is not None:
+            if x.name in x.get_bind_values() and model() is not None:
+                model()._sync_weights()
+            ret = x.eval().asnumpy()
         else:
             bind_values = _dfs_get_bind_values(x)
             executor = x.symbol.simple_bind(mx.cpu(), grad_req='null')
             for v in executor.arg_dict:
                 bind_values[v].copyto(executor.arg_dict[v])
-            outputs = executor.forward(is_train=_LEARNING_PHASE)
+            outputs = executor.forward(is_train=learning_phase())
             ret = outputs[0].asnumpy()
-
         if ret.shape == (1,):
             return ret[0]
         return ret
@@ -815,8 +875,7 @@ def zeros(shape, dtype=None, name=None):
         dtype = floatx()
     dtype = _convert_string_dtype(dtype)
     value = mx.nd.zeros(shape, dtype=dtype)
-    if name is None:
-        name = _autogen_name('zerosinit')
+    name = _prepare_name(name, 'zeroinit')
     kvar = _keras_variable(name, value.shape, value.dtype)
     kvar.bind(value)
     return kvar
@@ -847,8 +906,7 @@ def ones(shape, dtype=None, name=None):
         dtype = floatx()
     dtype = _convert_string_dtype(dtype)
     value = mx.nd.ones(shape, dtype=dtype)
-    if name is None:
-        name = _autogen_name('onesinit')
+    name = _prepare_name(name, 'oneinit')
     kvar = _keras_variable(name=name, shape=shape, dtype=dtype)
     kvar.bind(value)
     return kvar
@@ -880,8 +938,7 @@ def eye(size, dtype=None, name=None):
         dtype = floatx()
     dtype = _convert_string_dtype(dtype)
     value = mx.nd.array(np.eye(size, dtype=dtype))
-    if name is None:
-        name = _autogen_name('eyeinit')
+    name = _prepare_name(name, 'eyeinit')
     kvar = _keras_variable(name=name, shape=size, dtype=dtype)
     kvar.bind(value)
     return kvar
@@ -909,12 +966,11 @@ def zeros_like(x, dtype=None, name=None):
                [ 0.,  0.,  0.]], dtype=float32)
     ```
     """
-    if name is None:
-        name = _autogen_name('zeroslikeinit')
     if dtype is None:
         dtype = x.dtype
     else:
         dtype = _convert_string_dtype(dtype)
+    name = _prepare_name(name, 'zeroslikeinit')
     value = mx.nd.zeros(x.shape, dtype=dtype)
     kvar = _keras_variable(name=name, dtype=dtype, shape=x.shape)
     kvar.bind(value)
@@ -943,13 +999,11 @@ def ones_like(x, dtype=None, name=None):
                [ 1.,  1.,  1.]], dtype=float32)
     ```
     """
-    if name is None:
-        name = _autogen_name('oneslikeinit')
     if dtype is None:
         dtype = x.dtype
     else:
         dtype = _convert_string_dtype(dtype)
-
+    name = _prepare_name(name, 'onelikeinit')
     value = mx.nd.ones(shape=x.get_shape(), dtype=dtype)
     kvar = _keras_variable(name=name, dtype=dtype, shape=x.shape)
     kvar.bind(value)
@@ -978,7 +1032,7 @@ def identity(x):
                [ 3.,  4.]], dtype=float32)
     ```
     """
-    name = _autogen_name('identityinit')
+    name = _prepare_name(None, 'identityinit')
     dtype = x.dtype
     shape = x.shape
     xvalue = eval(x)
@@ -1025,14 +1079,12 @@ def random_uniform_variable(shape, low, high, dtype=None,
     if dtype is None:
         dtype = floatx()
     dtype = _convert_string_dtype(dtype)
-    if name is None:
-        name = _autogen_name("randomuniform")
-    _seed_mxnet(seed)
-
+    name = _prepare_name(name, "randomuniform")
+    if seed:
+        mx.random.seed(seed)
     value = mx.random.uniform(low=low, high=high, dtype='float32', shape=shape)
     if dtype != np.float32:
         value = mx.nd.Cast(value, dtype=dtype)
-
     kvar = _keras_variable(name=name, shape=shape, dtype=dtype)
     kvar.bind(value)
     return kvar
@@ -1075,10 +1127,9 @@ def random_normal_variable(shape, mean, scale, dtype=None,
     if dtype is None:
         dtype = floatx()
     dtype = _convert_string_dtype(dtype)
-    if name is None:
-        name = _autogen_name("randomnormal")
-    _seed_mxnet(seed)
-
+    name = _prepare_name(name, "randomnormal")
+    if seed:
+        mx.random.seed(seed)
     value = mx.random.normal(loc=mean, scale=scale, dtype='float32', shape=shape)
     if dtype != np.float32:
         value = mx.nd.Cast(value, dtype=dtype)
@@ -1146,9 +1197,8 @@ def cast(x, dtype):
     else:
         return x.astype(dtype)
 
+
 # UPDATES OPS
-
-
 def update(x, new_x):
     """Update the value of `x` to `new_x`.
 
@@ -1256,10 +1306,10 @@ def dot(x, y):
         y = mx.sym.transpose(y.symbol, axes=axis)
     else:
         y = y.symbol
-
     return KerasSymbol(mx.sym.dot(lhs=x.symbol, rhs=y))
 
 
+## TODO: batch_dot is not correct, now the argument becomes axes instead of dim
 @keras_symbol_child
 def batch_dot(x, y, axes=None):
     """Batchwise dot product.
@@ -1389,12 +1439,14 @@ def gather(reference, indices):
     # Returns
         A tensor of same type as `reference`.
     """
-    assert ndim(reference) == 2
+    # TODO: this ndim is not used in CNN
+    # assert ndim(reference) == 2
     indices = mx.sym.Cast(indices.symbol, dtype=reference.dtype)
     return KerasSymbol(mx.sym.take(reference.symbol, indices))
 
 
 # ELEMENT-WISE OPERATIONS
+@keras_symbol_child
 def max(x, axis=None, keepdims=False):
     """Maximum value in a tensor.
 
@@ -1412,7 +1464,7 @@ def max(x, axis=None, keepdims=False):
     axis = _normalize_axis(axis, ndim(x))
     return KerasSymbol(mx.sym.max(data=x.symbol, axis=axis, keepdims=keepdims))
 
-
+@keras_symbol_child
 def min(x, axis=None, keepdims=False):
     """Minimum value in a tensor.
 
@@ -1481,6 +1533,7 @@ def cumsum(x, axis=0):
     """
     raise NotImplementedError()
 
+
 def cumprod(x, axis=0):
     """Cumulative product of the values in a tensor, alongside the specified axis.
 
@@ -1512,8 +1565,9 @@ def var(x, axis=None, keepdims=False):
     axis = _normalize_axis(axis, ndim(x))
     if isinstance(x, KerasSymbol):
         x = x.symbol
-
-    v = _var(x, axis, keepdims)
+    mean_input = mx.sym.mean(data=x, axis=axis, keepdims=True)
+    centered_input = mx.sym.broadcast_minus(lhs=x, rhs=mean_input)
+    v = mx.sym.mean(data=(centered_input ** 2), axis=axis, keepdims=keepdims)
     return KerasSymbol(v)
 
 
@@ -1581,10 +1635,8 @@ def any(x, axis=None, keepdims=False):
     axis = _normalize_axis(axis, ndim(x))
     if isinstance(x, KerasSymbol):
         x = x.symbol
-    sum0 = mx.sym.sum_axis(x, axis=axis, keepdims=keepdims)
-    # tmp = KerasSymbol(sum0)
-    # bg = mx.sym.broadcast_greater(lhs=sum0, rhs=0)
-    # bg_tmp = KerasSymbol()
+    pos = mx.sym.Cast(x > 0, dtype=np.int32)
+    sum0 = mx.sym.sum_axis(pos, axis=axis, keepdims=keepdims)
     return KerasSymbol(sum0 > 0)
 
 
@@ -2488,9 +2540,8 @@ def reverse(x, axes):
     """
     return KerasSymbol(mx.symbol.reverse(data=x.symbol, axis=axes))
 
+
 # VALUE MANIPULATION
-
-
 def get_value(x):
     """Returns the value of a variable.
 
@@ -2574,7 +2625,7 @@ class Function(object):
             self.inputs = inputs[:-1]
         else:
             self.inputs = inputs
-            self.is_train = _LEARNING_PHASE
+            self.is_train = learning_phase()
 
     def __call__(self, inputs):
         ret_outputs = []
@@ -2643,7 +2694,6 @@ def stop_gradient(variables):
 
 
 # CONTROL FLOW
-
 def rnn(step_function, inputs, initial_states,
         go_backwards=False, mask=None, constants=None,
         unroll=False, input_length=None):
@@ -2755,8 +2805,7 @@ def in_test_phase(x, alt, training=None):
 
 
 # NN OPERATIONS
-
-
+@keras_symbol_child
 def relu(x, alpha=0., max_value=None):
     """Rectified linear unit.
 
@@ -2770,9 +2819,13 @@ def relu(x, alpha=0., max_value=None):
     # Returns
         A tensor.
     """
-    raise NotImplementedError()
+    ret = mx.sym.LeakyRelu(data=x.symbol, act_type='leaky', slope=alpha)
+    if max_value > 0:
+        ret = mx.sym.minimum(ret, max_value)
+    return KerasSymbol(ret)
 
 
+@keras_symbol_child
 def elu(x, alpha=1.):
     """Exponential linear unit.
 
@@ -2783,9 +2836,10 @@ def elu(x, alpha=1.):
     # Returns
         A tensor.
     """
-    raise NotImplementedError()
+    return KerasSymbol(mx.sym.LeakyRelu(data=x.symbol, act_type='elu', slope=alpha))
 
 
+@keras_symbol_child
 def softmax(x):
     """Softmax of a tensor.
 
@@ -2795,9 +2849,10 @@ def softmax(x):
     # Returns
         A tensor.
     """
-    raise NotImplementedError()
+    return KerasSymbol(mx.sym.SoftmaxActivation(data=x.symbol))
 
 
+@keras_symbol_child
 def softplus(x):
     """Softplus of a tensor.
 
@@ -2807,9 +2862,10 @@ def softplus(x):
     # Returns
         A tensor.
     """
-    raise NotImplementedError()
+    return KerasSymbol(mx.sym.Activation(data=x.symbol, act_type='softrelu'))
 
 
+@keras_symbol_child
 def softsign(x):
     """Softsign of a tensor.
 
@@ -2819,9 +2875,10 @@ def softsign(x):
     # Returns
         A tensor.
     """
-    raise NotImplementedError()
+    return KerasSymbol(x.symbol / (1 + mx.sym.abs(x.symbol)))
 
 
+@keras_symbol_child
 def categorical_crossentropy(target, output, from_logits=False):
     """Categorical crossentropy between an output tensor and a target tensor.
 
@@ -2836,7 +2893,16 @@ def categorical_crossentropy(target, output, from_logits=False):
     # Returns
         Output tensor.
     """
-    raise NotImplementedError()
+    assert is_keras_tensor(output), "output should be Keras tensor"
+    assert is_keras_tensor(target), "target should be Keras tensor"
+    axis = ndim(output) - 1
+    mx_output = output.symbol
+    mx_output = mx.sym.clip(mx_output, a_min=epsilon(), a_max=1-epsilon())
+    if not from_logits:
+        mx_output = - mx.sym.sum(target.symbol * mx.sym.log(mx_output), axis=axis)
+    else:
+        mx_output = mx.sym.softmax_cross_entropy(data=output, label=target)
+    return KerasSymbol(mx_output)
 
 
 def sparse_categorical_crossentropy(target, output, from_logits=False):
@@ -2856,6 +2922,7 @@ def sparse_categorical_crossentropy(target, output, from_logits=False):
     raise NotImplementedError()
 
 
+@keras_symbol_child
 def binary_crossentropy(target, output, from_logits=False):
     """Binary crossentropy between an output tensor and a target tensor.
 
@@ -2869,9 +2936,17 @@ def binary_crossentropy(target, output, from_logits=False):
     # Returns
         A tensor.
     """
-    raise NotImplementedError()
+    assert is_keras_tensor(output), "output should be Keras tensor"
+    assert is_keras_tensor(target), "target should be Keras tensor"
+    mx_output = output.symbol
+    if from_logits:
+        mx_output = mx.sym.Activation(mx_output, act_type='sigmoid')
+    mx_output = mx.sym.clip(mx_output, a_min=epsilon(), a_max=1-epsilon())
+    mx_output = - (target.symbol * mx.sym.log(mx_output) + (1-target.symbol) * mx.sym.log(1-mx_output))
+    return KerasSymbol(mx_output)
 
 
+@keras_symbol_child
 def sigmoid(x):
     """Element-wise sigmoid.
 
@@ -2881,8 +2956,10 @@ def sigmoid(x):
     # Returns
         A tensor.
     """
-    raise NotImplementedError()
+    return KerasSymbol(mx.sym.Activation(data=x.symbol, act_type='sigmoid'))
 
+
+@keras_symbol_child
 def hard_sigmoid(x):
     """Segment-wise linear approximation of sigmoid.
 
@@ -2896,9 +2973,10 @@ def hard_sigmoid(x):
     # Returns
         A tensor.
     """
-    raise NotImplementedError()
+    return KerasSymbol(mx.sym.clip(data=(0.2 * x.symbol + 0.5), a_min=0., a_max=1.))
 
 
+@keras_symbol_child
 def tanh(x):
     """Element-wise tanh.
 
@@ -2908,7 +2986,7 @@ def tanh(x):
     # Returns
         A tensor.
     """
-    raise NotImplementedError()
+    return KerasSymbol(mx.sym.tanh(data=x.symbol))
 
 
 @keras_symbol_child
@@ -2927,11 +3005,11 @@ def dropout(x, level, noise_shape=None, seed=None):
         A tensor.
     """
     _seed_mxnet(seed)
-    name = _autogen_name('dropout')
-
+    name = _prepare_name(None, 'dropout')
     return KerasSymbol(mx.sym.Dropout(data=x.symbol, p=level, name=name))
 
 
+@keras_symbol_child
 def l2_normalize(x, axis=None):
     """Normalizes a tensor wrt the L2 norm alongside the specified axis.
 
@@ -2964,7 +3042,24 @@ def in_top_k(predictions, targets, k):
     """
     raise NotImplementedError()
 
+
 # CONVOLUTIONS
+@keras_symbol_child
+def _preprocess_convnd_input(x, data_format):
+    if data_format == 'channels_last' and ndim(x) > 3:
+        idx = list(range(ndim(x)))
+        idx.insert(1, idx.pop(-1))  # make it channel first format
+        x = KerasSymbol(mx.sym.transpose(data=x.symbol, axes=idx))
+    return x
+
+
+@keras_symbol_child
+def _postprocess_convnd_output(x, data_format):
+    if data_format == 'channels_last' and ndim(x) > 3:
+        idx = list(range(ndim(x)))
+        idx.append(idx.pop(1))
+        x = KerasSymbol(mx.sym.transpose(data=x.symbol, axes=idx))
+    return x
 
 
 def conv1d(x, kernel, strides=1, padding='valid',
@@ -3122,6 +3217,7 @@ def conv3d_transpose(x, kernel, output_shape, strides=(1, 1, 1),
     raise NotImplementedError()
 
 
+@keras_symbol_child
 def pool2d(x, pool_size, strides=(1, 1),
            padding='valid', data_format=None,
            pool_mode='max'):
@@ -3142,9 +3238,24 @@ def pool2d(x, pool_size, strides=(1, 1),
         ValueError: if `data_format` is neither `"channels_last"` or `"channels_first"`.
         ValueError: if `pool_mode` is neither `"max"` or `"avg"`.
     """
-    raise NotImplementedError()
+    if data_format is None:
+        data_format = image_data_format()
+    if data_format not in {"channels_first", "channels_last"}:
+        raise ValueError("`data_format` should be either `channels_first` or `channels_last`.")
+    if pool_mode not in {"max", "avg"}:
+        raise ValueError("`pool_mode` should be either `max` or `avg`.")
+    if padding not in {"same", "valid"}:
+        raise ValueError("`padding` should be either `same` or `valid`.")
+    x = _preprocess_convnd_input(x, data_format)
+    mx_out = mx.sym.Pooling(data=x.symbol,
+                            kernel=pool_size,
+                            pool_type=pool_mode,
+                            pooling_convention=padding,
+                            stride=strides)
+    return _postprocess_convnd_output(mx_out, data_format)
 
 
+@keras_symbol_child
 def pool3d(x, pool_size, strides=(1, 1, 1), padding='valid',
            data_format=None, pool_mode='max'):
     """3D Pooling.
@@ -3164,7 +3275,21 @@ def pool3d(x, pool_size, strides=(1, 1, 1), padding='valid',
         ValueError: if `data_format` is neither `"channels_last"` or `"channels_first"`.
         ValueError: if `pool_mode` is neither `"max"` or `"avg"`.
     """
-    raise NotImplementedError()
+    if data_format is None:
+        data_format = image_data_format()
+    if data_format not in {"channels_first", "channels_last"}:
+        raise ValueError("`data_format` should be either `channels_first` or `channels_last`.")
+    if pool_mode not in {"max", "avg"}:
+        raise ValueError("`pool_mode` should be either `max` or `avg`.")
+    if padding not in {"same", "valid"}:
+        raise ValueError("`padding` should be either `same` or `valid`.")
+    x = _preprocess_convnd_input(x, data_format)
+    mx_out = mx.sym.Pooling(data=x.symbol,
+                            kernel=pool_size,
+                            pool_type=pool_mode,
+                            pooling_convention=padding,
+                            stride=strides)
+    return _postprocess_convnd_output(mx_out, data_format)
 
 
 def bias_add(x, bias, data_format=None):
@@ -3187,8 +3312,8 @@ def bias_add(x, bias, data_format=None):
     """
     raise NotImplementedError()
 
-# RANDOMNESS
 
+# RANDOMNESS
 
 @keras_symbol_child
 def random_normal(shape, mean=0.0, stddev=1.0, dtype=None, seed=None):
@@ -3208,9 +3333,8 @@ def random_normal(shape, mean=0.0, stddev=1.0, dtype=None, seed=None):
     if dtype is None:
         dtype = floatx()
     dtype = np.dtype(dtype)
-    name = _autogen_name('normal')
+    name = _prepare_name(None, 'normal')
     _seed_mxnet(seed)
-
     sym = mx.sym.random_normal(loc=mean, scale=stddev, shape=shape, dtype='float32', name=name)
     if dtype != np.float32:
         sym = mx.sym.Cast(data=sym, dtype=dtype)
@@ -3236,15 +3360,11 @@ def random_uniform(shape, minval=0.0, maxval=1.0, dtype=None, seed=None):
     """
     if dtype is None:
         dtype = floatx()
-    dtype = np.dtype(dtype)
-    name = _autogen_name('uniform')
+    dtype = _convert_string_dtype(dtype)
+    name = _prepare_name(None, 'uniform')
     _seed_mxnet(seed)
-
-    sym = mx.sym.random_uniform(low=minval, high=maxval, shape=shape, dtype='float32', name=name)
-    if dtype != np.float32:
-        sym = mx.sym.Cast(data=sym, dtype=dtype)
-    ret = KerasSymbol(sym)
-    return ret
+    sym = mx.sym.uniform(low=minval, high=maxval, shape=shape, dtype=dtype, name=name)
+    return KerasSymbol(sym)
 
 
 @keras_symbol_child
@@ -3262,13 +3382,11 @@ def random_binomial(shape, p=0.0, dtype=None, seed=None):
     """
     if dtype is None:
         dtype = floatx()
-    name = _autogen_name('binomial')
+    name = _prepare_name(None, 'binomial')
     _seed_mxnet(seed)
-
     value = mx.sym.random_uniform(dtype='float32', shape=shape)
     sym = mx.symbol.where(value <= p, mx.symbol.ones(shape=shape, dtype=dtype),
                           mx.symbol.zeros(shape=shape, dtype=dtype), name=name)
-
     if dtype != np.float32:
         sym = mx.sym.Cast(data=sym, dtype=dtype)
     ret = KerasSymbol(sym)
@@ -3295,6 +3413,8 @@ def truncated_normal(shape, mean=0.0, stddev=1.0, dtype=None, seed=None):
     """
     raise NotImplementedError("MXNet Backend: Truncated Normal Tensor is not supported!")
 
+
+
 # HIGH ORDER FUNCTIONS
 
 def map_fn(fn, elems, name=None, dtype=None):
@@ -3310,6 +3430,7 @@ def map_fn(fn, elems, name=None, dtype=None):
         Tensor with dtype `dtype`.
     """
     raise NotImplementedError()
+
 
 def foldl(fn, elems, initializer=None, name=None):
     """Reduce elems using fn to combine them from left to right.
@@ -3436,10 +3557,6 @@ def _keras_variable(name, shape, dtype, **kwargs):
     return ret
 
 
-def _autogen_name(prefix):
-    return prefix + str(get_uid(prefix))
-
-
 def _dfs_get_bind_values(node_start):
     stack_list = []
     visited = set()
@@ -3476,7 +3593,7 @@ def _convert_string_dtype(dtype):
     mapping = {'float16': np.float16,
                'float32': np.float32,
                'float64': np.float64,
-               'int16': np.int16,
+               'int8': np.int8,
                'int32': np.int32,
                'int64': np.int64,
                'uint8': np.int8,
