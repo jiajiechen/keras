@@ -235,7 +235,6 @@ class TestKerasMXNet(object):
 
         f_list = []
         x_list = []
-        print(K.learning_phase())
 
         for k in test_backend:
             x = k.variable(val)
@@ -250,6 +249,10 @@ class TestKerasMXNet(object):
         assert_allclose(function_outputs_list[0], function_outputs_list[1], atol=1e-5)
         new_val_list = [k.get_value(x) for x, k in zip(x_list, test_backend)]
         assert_allclose(new_val_list[0], new_val_list[1], atol=1e-5)
+
+        new_val_list = [k.get_value(x) for x, k in zip(x_list, test_backend)]
+        assert_allclose(new_val_list[0], new_val_list[1], atol=1e-5)
+
 
 if __name__ == '__main__':
     pytest.main([__file__])
