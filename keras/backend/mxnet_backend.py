@@ -2746,6 +2746,9 @@ def switch(condition, then_expression, else_expression):
 
     # Returns
         The selected tensor.
+
+    # Raises
+        ValueError: If rank of `condition` is greater than rank of expressions.
     """
     raise NotImplementedError()
 
@@ -2768,7 +2771,20 @@ def in_train_phase(x, alt, training=None):
         Either `x` or `alt` based on the `training` flag.
         the `training` flag defaults to `K.learning_phase()`.
     """
-    raise NotImplementedError()
+    if not training:
+        training = learning_phase()
+
+    if training == 1:
+        if callable(x):
+            return x()
+        else:
+            return x
+    elif training == 0:
+        if callable(alt):
+            return alt()
+        else:
+            return alt
+    raise AssertionError("Learning phase must be 0 or 1.")
 
 
 def in_test_phase(x, alt, training=None):
@@ -2788,7 +2804,9 @@ def in_test_phase(x, alt, training=None):
     # Returns
         Either `x` or `alt` based on `K.learning_phase`.
     """
-    raise NotImplementedError()
+    if not training:
+        training = learning_phase()
+
 
 
 # NN OPERATIONS
@@ -3305,7 +3323,7 @@ def bias_add(x, bias, data_format=None):
     if len(bias_shape) != 1 and len(bias_shape) != ndim(x) - 1:
         raise ValueError('Unexpected bias dimensions %d, expect to be 1 or %d dimensions'
                          % (len(bias_shape), ndim(x)))
-
+    
     raise NotImplementedError()
 
 
@@ -3330,6 +3348,8 @@ def random_normal(shape, mean=0.0, stddev=1.0, dtype=None, seed=None):
     dtype = _convert_string_dtype(dtype)
     if seed:
         mx.random.seed(seed)
+    else:
+        mx.random.seed(10e6)
     value = mx.random.normal(loc=mean, scale=stddev, shape=shape, dtype=dtype)
     return value
 
@@ -3354,6 +3374,8 @@ def random_uniform(shape, minval=0.0, maxval=1.0, dtype=None, seed=None):
     dtype = _convert_string_dtype(dtype)
     if seed:
         mx.random.seed(seed)
+    else:
+        mx.random.seed(10e6)
     value = mx.random.uniform(low=minval, high=maxval, dtype=dtype, shape=shape)
     return value
 
@@ -3375,6 +3397,8 @@ def random_binomial(shape, p=0.0, dtype=None, seed=None):
     dtype = _convert_string_dtype(dtype)
     if seed:
         mx.random.seed(seed)
+    else:
+        mx.random.seed(10e6)
     value = mx.random.uniform(0., 1., dtype=dtype, shape=shape)
     value = mx.nd.where(value <= p, mx.nd.ones(shape, dtype=dtype), mx.nd.zeros(shape, dtype=dtype))
     return value
@@ -3399,7 +3423,6 @@ def truncated_normal(shape, mean=0.0, stddev=1.0, dtype=None, seed=None):
         A tensor.
     """
     raise NotImplementedError("MXNet Backend: Truncated Normal Tensor is not supported!")
-
 
 
 # HIGH ORDER FUNCTIONS
