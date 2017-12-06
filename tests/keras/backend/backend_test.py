@@ -39,12 +39,10 @@ except ImportError:
     KMX = None
     warnings.warn('Could not import the MXNet backend')
 
-<<<<<<< HEAD
-=======
+
 BACKENDS = set(BACKENDS)
 BACKENDS_WITHOUT_MXNET = BACKENDS - set([KMX])
 
->>>>>>> 75fca9d0d88c7a971f4cea86564994c26d5f2a39
 
 def check_dtype(var, dtype):
     if K._BACKEND == 'theano' or K._BACKEND == 'mxnet':
