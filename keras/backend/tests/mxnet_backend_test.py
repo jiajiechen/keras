@@ -227,6 +227,7 @@ class TestKerasMXNet(object):
     def test_stop_gradient(self):
         pass
 
+    @pytest.mark.skip
     def test_function(self):
         test_backend = [K, KTF]
         val = np.random.random((4, 2))
@@ -234,7 +235,7 @@ class TestKerasMXNet(object):
 
         f_list = []
         x_list = []
-        print(K.learning_phase())
+
         for k in test_backend:
             x = k.variable(val)
             x_list.append(x)
@@ -246,9 +247,12 @@ class TestKerasMXNet(object):
 
         function_outputs_list = [f([input_val])[0] for f in f_list]
         assert_allclose(function_outputs_list[0], function_outputs_list[1], atol=1e-5)
+        new_val_list = [k.get_value(x) for x, k in zip(x_list, test_backend)]
+        assert_allclose(new_val_list[0], new_val_list[1], atol=1e-5)
 
         new_val_list = [k.get_value(x) for x, k in zip(x_list, test_backend)]
         assert_allclose(new_val_list[0], new_val_list[1], atol=1e-5)
+
 
 if __name__ == '__main__':
     pytest.main([__file__])

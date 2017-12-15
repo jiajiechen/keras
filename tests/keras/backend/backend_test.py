@@ -39,6 +39,7 @@ except ImportError:
     KMX = None
     warnings.warn('Could not import the MXNet backend')
 
+
 BACKENDS = set(BACKENDS)
 BACKENDS_WITHOUT_MXNET = BACKENDS - set([KMX])
 
