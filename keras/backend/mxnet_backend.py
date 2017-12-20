@@ -2144,6 +2144,7 @@ def reshape(x, shape):
     # Returns
         A tensor.
     """
+    shape = tuple([0 if x is None else x for x in shape])
     return KerasSymbol(mx.sym.Reshape(data=x.symbol, shape=shape))
 
 
