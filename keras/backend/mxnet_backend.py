@@ -257,10 +257,7 @@ class KerasSymbol(object):
 
     @property
     def name(self):
-        if self._name:
-            return self._name
-        else:
-            return self.symbol.name
+        return self.symbol.name
 
     @property
     def dtype(self):
