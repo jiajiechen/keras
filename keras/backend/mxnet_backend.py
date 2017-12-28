@@ -182,7 +182,6 @@ def keras_symbol_child(func):
                         if reset:
                             assert isinstance(train_i._train_sym, mx.sym.Symbol)
                             assert isinstance(test_i._pred_sym, mx.sym.Symbol)
-                            assert train_i._name == test_i._name
                             train_i._pred_sym = test_i._pred_sym
                             assert train_i._train_sym is not None and train_i._pred_sym is not None
                     else:
@@ -258,10 +257,7 @@ class KerasSymbol(object):
 
     @property
     def name(self):
-        if self._name:
-            return self._name
-        else:
-            return self.symbol.name
+        return self.symbol.name
 
     @property
     def dtype(self):
@@ -2032,7 +2028,6 @@ def normalize_batch_in_training(x, gamma, beta,
     mean = mx.sym.mean(data=x, axis=reduction_axes, keepdims=False)
     var = _mxnet_variance(x, axis=reduction_axes, keepdims=False)
 
-    list_axe = list(range(ndim(original_x)))
     if sorted(reduction_axes) == list(range(ndim(original_x)))[:-1]:
         normed = batch_normalization(x, mean, var, beta, gamma, epsilon)
     else:
